@@ -6,32 +6,32 @@ This project is a Speech and Video-Based Emotion Detection System built using Py
 
 The system is divided into two main components:
 
-+Speech Emotion Recognition (SER): Detects emotion from voice using Convolutional and LSTM-based neural networks.
+*Speech Emotion Recognition (SER): Detects emotion from voice using Convolutional and LSTM-based neural networks.
 
-+Facial Emotion Recognition (FER): Detects emotion from video frames/images using CNN and LSTM models
+*Facial Emotion Recognition (FER): Detects emotion from video frames/images using CNN and LSTM models
 
 It is implemented in Python and offers a user-friendly GUI built with Tkinter for loading datasets, training models, and making predictions on both image and audio inputs.
 
 
 **🧠 Features**
 
-+Detect emotions from facial expressions using image datasets.
+*Detect emotions from facial expressions using image datasets.
 
-+Detect emotions from speech using audio datasets.
+*Detect emotions from speech using audio datasets.
 
-+Train using CNN and LSTM for both image and speech inputs.
+*Train using CNN and LSTM for both image and speech inputs.
 
-+Real-time video-based emotion prediction.
+*Real-time video-based emotion prediction.
 
-+Metrics: Accuracy, Precision, Recall, F1-Score.
+*Metrics: Accuracy, Precision, Recall, F1-Score.
 
 
 
 **🛠️ Tech Stack**
 
-+Python
+*Python
 
-+Keras / TensorFlow
+*Keras / TensorFlow
 
 +OpenCV
 
