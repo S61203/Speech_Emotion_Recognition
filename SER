@@ -1,0 +1,475 @@
+
+from tkinter import messagebox
+from tkinter import *
+from tkinter import simpledialog
+import tkinter
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from tkinter import simpledialog
+from tkinter import filedialog
+import os
+import cv2
+import numpy as np
+from keras.utils.np_utils import to_categorical
+from keras.layers import  MaxPooling2D
+from keras.layers import Dense, Dropout, Activation, Flatten, RepeatVector, Bidirectional, LSTM, GRU, AveragePooling2D
+from keras.layers import Convolution2D
+from keras.models import Sequential
+from keras.models import model_from_json
+import pickle
+from sklearn.model_selection import train_test_split
+import soundfile
+import librosa
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+import pandas as pd
+from nltk.corpus import stopwords
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer
+import pickle
+import moviepy.editor
+import subprocess
+from playsound import playsound
+import pathlib
+import speech_recognition as sr
+from keras.callbacks import ModelCheckpoint
+
+main = tkinter.Tk()
+main.title("Video & Voice Based Emotion Detection System") #designing main screen
+main.geometry("1300x1200")
+
+global filename
+global X, Y
+global face_classifier
+global speech_X, speech_Y
+global speech_classifier
+global accuracy, precision, recall, fscore
+global speech_X_train, speech_X_test, speech_y_train, speech_y_test
+global image_X_train, image_X_test, image_y_train, image_y_test, rf_cls, tfidf_vectorizer
+start = 0
+stop_words = set(stopwords.words('english'))
+recognizer = sr.Recognizer()
+
+def getID(name):
+    index = 0
+    for i in range(len(names)):
+        if names[i] == name:
+            index = i
+            break
+    return index        
+    
+
+def uploadDataset():
+    text.delete('1.0', END)
+    text.insert(END,"Emotion Dataset loaded\n");
+    
+    
+def processDataset():
+    text.delete('1.0', END)
+    global X, Y
+    global speech_X, speech_Y
+    global speech_X_train, speech_X_test, speech_y_train, speech_y_test
+    global image_X_train, image_X_test, image_y_train, image_y_test
+    if os.path.exists('model/X.txt.npy'):
+        X = np.load('model/X.txt.npy')
+        Y = np.load('model/Y.txt.npy')
+        speech_X = np.load('model/speechX.txt.npy')
+        speech_Y = np.load('model/speechY.txt.npy')        
+    else:
+        X = []
+        Y = []
+        for root, dirs, directory in os.walk(filename):
+            for j in range(len(directory)):
+                name = os.path.basename(root)
+                print(name+" "+root+"/"+directory[j])
+                if 'Thumbs.db' not in directory[j]:
+                    img = cv2.imread(root+"/"+directory[j])
+                    img = cv2.resize(img, (32,32))
+                    im2arr = np.array(img)
+                    im2arr = im2arr.reshape(32,32,3)
+                    X.append(im2arr)
+                    Y.append(getID(name))        
+        X = np.asarray(X)
+        Y = np.asarray(Y)
+        X = X.astype('float32')
+        X = X/255
+        indices = np.arange(X.shape[0])
+        np.random.shuffle(indices)
+        X = X[indices]
+        Y = Y[indices]
+        Y = to_categorical(Y)
+        np.save('model/X.txt',X)
+        np.save('model/Y.txt',Y)
+    image_X_train, image_X_test, image_y_train, image_y_test = train_test_split(X, Y, test_size=0.2)
+    speech_X_train, speech_X_test, speech_y_train, speech_y_test = train_test_split(speech_X, speech_Y, test_size=0.2)
+    text.insert(END,"Total number of Emotion images found in dataset is  : "+str(len(X))+"\n")
+    text.insert(END,"Total number of Emotion speech audio files found in dataset is  : "+str(speech_X.shape[0])+"\n\n")
+    text.insert(END,"Dataset Train & Test Split\n\n")
+    text.insert(END,"80% images used to train Deep Learning Algorithm : "+str(image_X_train.shape[0])+"\n")
+    text.insert(END,"20% images used to test Deep Learning Algorithm : "+str(image_X_test.shape[0])+"\n")
+    text.insert(END,"80% Speech Audio used to train Deep Learning Algorithm : "+str(speech_X_train.shape[0])+"\n")
+    text.insert(END,"20% Speech Audio used to test Deep Learning Algorithm : "+str(speech_X_test.shape[0])+"\n")
+    
+def calculateMetrics(algorithm, predict, y_test):
+    a = accuracy_score(y_test,predict)*100
+    p = precision_score(y_test, predict,average='macro') * 100
+    r = recall_score(y_test, predict,average='macro') * 100
+    f = f1_score(y_test, predict,average='macro') * 100
+    accuracy.append(a)
+    precision.append(p)
+    recall.append(r)
+    fscore.append(f)
+    text.insert(END,algorithm+" Accuracy  :  "+str(a)+"\n")
+    text.insert(END,algorithm+" Precision : "+str(p)+"\n")
+    text.insert(END,algorithm+" Recall    : "+str(r)+"\n")
+    text.insert(END,algorithm+" FScore    : "+str(f)+"\n\n")
+    text.update_idletasks()
+
+def trainSpeechCNN():
+    global speech_classifier
+    global speech_X_train, speech_X_test, speech_y_train, speech_y_test
+    if os.path.exists('model/speechmodel.json'):
+        with open('model/speechmodel.json', "r") as json_file:
+            loaded_model_json = json_file.read()
+            speech_classifier = model_from_json(loaded_model_json)
+        json_file.close()    
+        speech_classifier.load_weights("model/speech_weights.h5")
+        speech_classifier._make_predict_function()                  
+    else:
+        speech_classifier = Sequential()
+        speech_classifier.add(Convolution2D(32, 1, 1, input_shape = (speech_X.shape[1], speech_X.shape[2], speech_X.shape[3]), activation = 'relu'))
+        speech_classifier.add(MaxPooling2D(pool_size = (1, 1)))
+        speech_classifier.add(Convolution2D(32, 1, 1, activation = 'relu'))
+        speech_classifier.add(MaxPooling2D(pool_size = (1, 1)))
+        speech_classifier.add(Flatten())
+        speech_classifier.add(Dense(output_dim = 256, activation = 'relu'))
+        speech_classifier.add(Dense(output_dim = speech_Y.shape[1], activation = 'softmax'))
+        print(speech_classifier.summary())
+        speech_classifier.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['accuracy'])
+        hist = speech_classifier.fit(speech_X_train, speech_y_train, batch_size=16, epochs=10, shuffle=True, verbose=2)
+        speech_classifier.save_weights('model/speech_weights.h5')            
+        model_json = speech_classifier.to_json()
+        with open("model/speechmodel.json", "w") as json_file:
+            json_file.write(model_json)
+        json_file.close()    
+        f = open('model/speechhistory.pckl', 'wb')
+        pickle.dump(hist.history, f)
+        f.close()
+    predict = speech_classifier.predict(speech_X_test)
+    predict = np.argmax(predict, axis=1)
+    y_test1 = np.argmax(speech_y_test, axis=1)
+    calculateMetrics("CNN Speech Algorithm", predict, y_test1)
+
+def trainSpeechLSTM():
+    global speech_X_train, speech_X_test, speech_y_train, speech_y_test
+    speech_lstm_model = Sequential()
+    speech_lstm_model.add(Convolution2D(32, (1 , 1), input_shape = (speech_X_train.shape[1], speech_X_train.shape[2], speech_X_train.shape[3]), activation = 'relu'))
+    speech_lstm_model.add(MaxPooling2D(pool_size = (1, 1)))
+    speech_lstm_model.add(Convolution2D(32, (1, 1), activation = 'relu'))
+    speech_lstm_model.add(MaxPooling2D(pool_size = (1, 1)))
+    speech_lstm_model.add(Flatten())
+    speech_lstm_model.add(RepeatVector(2))
+    speech_lstm_model.add(Bidirectional(LSTM(32)))
+    speech_lstm_model.add(Dense(units = 256, activation = 'relu'))
+    speech_lstm_model.add(Dense(units = speech_y_train.shape[1], activation = 'softmax'))
+    speech_lstm_model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['accuracy'])
+    if os.path.exists("model/lstm_speech.hdf5") == False:
+        model_check_point = ModelCheckpoint(filepath='model/lstm_speech.hdf5', verbose = 1, save_best_only = True)
+        hist = speech_lstm_model.fit(speech_X_train, speech_y_train, batch_size = 32, epochs = 100, validation_data=(speech_X_test, speech_y_test), callbacks=[model_check_point], verbose=1)
+        f = open('model/lstm_speech.pckl', 'wb')
+        pickle.dump(hist.history, f)
+        f.close()    
+    else:
+        speech_lstm_model.load_weights("model/lstm_speech.hdf5")
+    #perform prediction on test data    
+    predict = speech_lstm_model.predict(speech_X_test)
+    predict = np.argmax(predict, axis=1)
+    y_test1 = np.argmax(speech_y_test, axis=1)
+    calculateMetrics("LSTM Speech Algorithm", predict, y_test1)
+
+def trainFaceLSTM():
+    global image_X_train, image_X_test, image_y_train, image_y_test, accuracy, precision, recall, fscore
+    image_lstm_model = Sequential()
+    image_lstm_model.add(Convolution2D(32, (3 , 3), input_shape = (image_X_train.shape[1], image_X_train.shape[2], image_X_train.shape[3]), activation = 'relu'))
+    image_lstm_model.add(MaxPooling2D(pool_size = (2, 2)))
+    image_lstm_model.add(Convolution2D(32, (3, 3), activation = 'relu'))
+    image_lstm_model.add(MaxPooling2D(pool_size = (2, 2)))
+    image_lstm_model.add(Flatten())
+    image_lstm_model.add(RepeatVector(2))
+    image_lstm_model.add(Bidirectional(LSTM(32)))
+    #lstm_model.add(Dropout(0.3))
+    image_lstm_model.add(Dense(units = 256, activation = 'relu'))
+    image_lstm_model.add(Dense(units = image_y_train.shape[1], activation = 'softmax'))
+    image_lstm_model.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['accuracy'])
+    if os.path.exists("model/lstm_image.hdf5") == False:
+        model_check_point = ModelCheckpoint(filepath='model/lstm_image.hdf5', verbose = 1, save_best_only = True)
+        hist = image_lstm_model.fit(image_X_train, image_y_train, batch_size = 32, epochs = 20, validation_data=(image_X_test, image_y_test), callbacks=[model_check_point], verbose=1)
+        f = open('model/lstm_image.pckl', 'wb')
+        pickle.dump(hist.history, f)
+        f.close()    
+    else:
+        image_lstm_model.load_weights("model/lstm_image.hdf5")
+    #perform prediction on test data    
+    predict = image_lstm_model.predict(image_X_test)
+    predict = np.argmax(predict, axis=1)
+    y_test1 = np.argmax(image_y_test, axis=1)
+    calculateMetrics("LSTM Image Algorithm", predict, y_test1)
+    
+def trainFaceCNN():
+    global face_classifier, accuracy, precision, recall, fscore
+    accuracy = []
+    precision = []
+    recall = []
+    fscore = []
+    global image_X_train, image_X_test, image_y_train, image_y_test
+    text.delete('1.0', END)
+    if os.path.exists('model/cnnmodel.json'):
+        with open('model/cnnmodel.json', "r") as json_file:
+            loaded_model_json = json_file.read()
+            face_classifier = model_from_json(loaded_model_json)
+        json_file.close()    
+        face_classifier.load_weights("model/cnnmodel_weights.h5")
+        face_classifier._make_predict_function()                  
+    else:
+        face_classifier = Sequential()
+        face_classifier.add(Convolution2D(32, 3, 3, input_shape = (32, 32, 3), activation = 'relu'))
+        face_classifier.add(MaxPooling2D(pool_size = (2, 2)))
+        face_classifier.add(Convolution2D(32, 3, 3, activation = 'relu'))
+        face_classifier.add(MaxPooling2D(pool_size = (2, 2)))
+        face_classifier.add(Flatten())
+        face_classifier.add(Dense(output_dim = 256, activation = 'relu'))
+        face_classifier.add(Dense(output_dim = 7, activation = 'softmax'))
+        print(face_classifier.summary())
+        face_classifier.compile(optimizer = 'adam', loss = 'categorical_crossentropy', metrics = ['accuracy'])
+        hist = face_classifier.fit(image_X_train, image_y_train, batch_size=16, epochs=10, shuffle=True, verbose=2)
+        face_classifier.save_weights('model/cnnmodel_weights.h5')            
+        model_json = face_classifier.to_json()
+        with open("model/cnnmodel.json", "w") as json_file:
+            json_file.write(model_json)
+        json_file.close()    
+        f = open('model/cnnhistory.pckl', 'wb')
+        pickle.dump(hist.history, f)
+        f.close()
+    predict = face_classifier.predict(image_X_test)
+    predict = np.argmax(predict, axis=1)
+    y_test1 = np.argmax(image_y_test, axis=1)
+    calculateMetrics("CNN Image Algorithm", predict, y_test1)   
+
+def predictFaceDepression(test_img):
+    global face_classifier
+    labels = ['Angry', 'Disgusted', 'Fearful', 'Happy', 'Neutral', 'Sad', 'Surprised']
+    image = cv2.imread("temp.png")
+    img = cv2.resize(image, (32,32))
+    im2arr = np.array(img)
+    im2arr = im2arr.reshape(1,32,32,3)
+    img = np.asarray(im2arr)
+    img = img.astype('float32')
+    img = img/255
+    preds = face_classifier.predict(img)
+    predict = np.argmax(preds)
+    output = "Emotion : "+labels[predict]
+    cv2.putText(test_img, output, (10, 25),  cv2.FONT_HERSHEY_SIMPLEX,0.7, (255, 0, 0), 2)
+    return test_img
+
+def videoEmotion():
+    filename = filedialog.askopenfilename(initialdir="testData")
+    video = cv2.VideoCapture(filename)
+    while(True):
+        ret, frame = video.read()
+        if ret == True:
+            filename = "temp.png"
+            cv2.imwrite("temp.png",frame)
+            img = predictFaceDepression(frame)
+            cv2.imshow("Predicted Result", img)
+            if cv2.waitKey(5) & 0xFF == ord('q'):
+                break  
+        else:
+            break
+    video.release()
+    cv2.destroyAllWindows()
+
+def extract_feature(file_name, mfcc, chroma, mel):
+    with soundfile.SoundFile(file_name) as sound_file:
+        X = sound_file.read(dtype="float32")
+        sample_rate=sound_file.samplerate
+        if chroma:
+            stft=np.abs(librosa.stft(X))
+        result=np.array([])
+        if mfcc:
+            mfccs=np.mean(librosa.feature.mfcc(y=X, sr=sample_rate, n_mfcc=40).T, axis=0)
+            result=np.hstack((result, mfccs))
+        if chroma:
+            chroma=np.mean(librosa.feature.chroma_stft(S=stft, sr=sample_rate).T,axis=0)
+            result=np.hstack((result, chroma))
+        if mel:
+            mel=np.mean(librosa.feature.melspectrogram(X, sr=sample_rate).T,axis=0)
+            result=np.hstack((result, mel))
+    sound_file.close()        
+    return result
+
+def speechEmotion():
+    global start
+    start += 1
+    speech_emotion = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
+    text.delete('1.0', END)
+    global speech_classifier
+    filename = filedialog.askopenfilename(initialdir="testData")
+    fname = os.path.basename(filename)
+    video = moviepy.editor.VideoFileClip(filename)
+    video.audio.write_audiofile("Audio.wav")
+    path = str(pathlib.Path(".").parent.absolute())
+    path = path.replace("\\","/")    
+    res = subprocess.check_output(path+'/model/ffmpeg.exe -i '+path+'/Audio.wav -ac 1 '+path+'/audio/Audio'+str(start)+'.wav', shell=True)    
+    test = []
+    mfcc = extract_feature('audio/Audio'+str(start)+'.wav', mfcc=True, chroma=True, mel=True)
+    test.append(mfcc)
+    test = np.asarray(test)
+    test = test.astype('float32')
+    test = test/255
+
+    test = test.reshape((test.shape[0],test.shape[1],1,1))
+    predict = speech_classifier.predict(test)
+    predict = np.argmax(predict)
+    print(predict)
+    predict = predict - 1
+    output = speech_emotion[predict]  
+    text.delete('1.0', END)
+    text.insert(END,"Upload video file : "+fname+" Emotion Output : "+output+"\n")
+    text.update_idletasks()
+    playsound(path+'/audio/Audio'+str(start)+'.wav')
+
+def textEmotion():
+    global tfidf_vectorizer, stop_words, rf_cls, recognizer, start
+    text.delete('1.0', END)
+    data = "unable to recognize"
+    with sr.WavFile('audio/Audio'+str(start)+'.wav') as source:
+        audio = recognizer.record(source)
+    try:
+        data = recognizer.recognize_google(audio)
+    except Exception as ex:
+        data = "unable to recognize"
+    if data != 'unable to recognize':
+        text.insert(END,"Extracted Text from Video = "+data+"\n\n")
+        arr = data.split(" ")
+        msg = ''
+        for k in range(len(arr)):#remove stop words
+            word = arr[k].strip()
+            if len(word) > 2 and word not in stop_words:
+                msg+=arr[k]+" "
+        text_data = msg.strip()
+        text_data = [text_data]
+        text_data = tfidf_vectorizer.transform(text_data).toarray()#convert text to numeric vector
+        predict = rf_cls.predict(text_data)[0]# predict sentiment from test comments
+        print(predict)
+        if predict == 0:
+            text.insert(END,"Video Text Emotion = Happy\n\n")
+        elif predict == 1:
+            text.insert(END,"Video Text Emotion = Sad\n\n")
+    else:
+        text.insert(END,data+"\n")
+    
+
+def trainText():
+    global tfidf_vectorizer, stop_words, rf_cls
+    f = open('model/tfidf.pckl', 'rb')
+    tfidf_vectorizer = pickle.load(f)
+    f.close()
+    text_X = np.load("model/textX.txt.npy")
+    text_Y = np.load("model/textY.txt.npy")
+    indices = np.arange(text_X.shape[0])
+    np.random.shuffle(indices)
+    text_X = text_X[indices]
+    text_Y = text_Y[indices]
+    text_X_train, text_X_test, text_y_train, text_y_test = train_test_split(text_X, text_Y, test_size=0.2)
+    rf_cls = RandomForestClassifier(max_depth=30)
+    rf_cls.fit(text_X_train, text_y_train)
+    predict = rf_cls.predict(text_X_test)
+    calculateMetrics("Text Emotion Random Forest", predict, text_y_test)
+    
+def graph():
+    global accuracy, precision, recall, fscore
+    df = pd.DataFrame([['Image CNN','Accuracy',accuracy[0]],['Image CNN','Precision',precision[0]],['Image CNN','Recall',recall[0]],['Image CNN','FSCORE',fscore[0]],
+                       ['Speech CNN','Accuracy',accuracy[1]],['Speech CNN','Precision',precision[1]],['Speech CNN','Recall',recall[1]],['Speech CNN','FSCORE',fscore[1]],
+                       ['Text Random Forest','Accuracy',accuracy[2]],['Text Random Forest','Precision',precision[2]],['Text Random Forest','Recall',recall[2]],['Text Random Forest','FSCORE',fscore[2]],
+                       ['Image LSTM','Accuracy',accuracy[3]],['Image LSTM','Precision',precision[3]],['Image LSTM','Recall',recall[3]],['Image LSTM','FSCORE',fscore[3]],
+                       ['Speech LSTM','Accuracy',accuracy[4]],['Speech LSTM','Precision',precision[4]],['Speech LSTM','Recall',recall[4]],['Speech LSTM','FSCORE',fscore[4]],
+                      ],columns=['Parameters','Algorithms','Value'])
+    df.pivot("Parameters", "Algorithms", "Value").plot(kind='bar', figsize=(6, 3))
+    plt.title("All Algorithms Performance Graph")
+    plt.tight_layout()
+    plt.show()
+
+def removeFile():
+    for root, dirs, directory in os.walk("audio"):
+        for j in range(len(directory)):
+            if os.path.exists(root+"/"+directory[j]):
+                os.remove(root+"/"+directory[j])
+
+font = ('times', 13, 'bold')
+title = Label(main, text='Video & Voice Based Emotion Detection System')
+title.config(bg='LightGoldenrod1', fg='medium orchid')  
+title.config(font=font)           
+title.config(height=3, width=120)       
+title.place(x=0,y=5)
+
+font1 = ('times', 12, 'bold')
+text=Text(main,height=30,width=110)
+scroll=Scrollbar(text)
+text.configure(yscrollcommand=scroll.set)
+text.place(x=420,y=100)
+text.config(font=font1)
+
+
+font1 = ('times', 12, 'bold')
+uploadButton = Button(main, text="Load Emotion Dataset", command=uploadDataset)
+uploadButton.place(x=50,y=100)
+uploadButton.config(font=font1)  
+
+processButton = Button(main, text="Preprocess Dataset", command=processDataset)
+processButton.place(x=50,y=150)
+processButton.config(font=font1) 
+
+cnnButton = Button(main, text="Train Facial Emotion CNN Algorithm", command=trainFaceCNN)
+cnnButton.place(x=50,y=200)
+cnnButton.config(font=font1) 
+
+rnnButton = Button(main, text="Train Speech Emotion CNN Algorithm", command=trainSpeechCNN)
+rnnButton.place(x=50,y=250)
+rnnButton.config(font=font1)
+
+textButton = Button(main, text="Train Text Emotion Algorithm", command=trainText)
+textButton.place(x=50,y=300)
+textButton.config(font=font1)
+
+imagelstmButton = Button(main, text="Train Facial Emotion LSTM", command=trainFaceLSTM)
+imagelstmButton.place(x=50,y=350)
+imagelstmButton.config(font=font1)
+
+speechlstmButton = Button(main, text="Train Speech Emotion LSTM", command=trainSpeechLSTM)
+speechlstmButton.place(x=50,y=400)
+speechlstmButton.config(font=font1)
+
+graphButton = Button(main, text="Accuracy Comparison Graph", command=graph)
+graphButton.place(x=50,y=450)
+graphButton.config(font=font1)
+
+predictfaceButton = Button(main, text="Video Based Emotion Detection", command=videoEmotion)
+predictfaceButton.place(x=50,y=500)
+predictfaceButton.config(font=font1)
+
+predictspeechButton = Button(main, text="Speech Based Emotion Detection", command=speechEmotion)
+predictspeechButton.place(x=50,y=550)
+predictspeechButton.config(font=font1)
+
+predicttextButton = Button(main, text="Text Based Emotion Detection", command=textEmotion)
+predicttextButton.place(x=50,y=600)
+predicttextButton.config(font=font1)
+
+removeFile()
+
+main.config(bg='OliveDrab2')
+main.mainloop()
